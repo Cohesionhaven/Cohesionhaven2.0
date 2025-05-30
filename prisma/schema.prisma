@@ -1,0 +1,238 @@
+// HomeShare Database Schema
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  HOMELESS
+  PROVIDER
+  ORGANIZER
+  ADMIN
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum BackgroundCheckStatus {
+  NOT_STARTED
+  PENDING
+  PASSED
+  FAILED
+}
+
+enum MessageStatus {
+  SENT
+  DELIVERED
+  READ
+}
+
+enum ReportStatus {
+  PENDING
+  INVESTIGATING
+  RESOLVED
+  DISMISSED
+}
+
+enum ResourceType {
+  SHELTER
+  FOOD
+  HEALTHCARE
+  EMPLOYMENT
+  EDUCATION
+  LEGAL
+  OTHER
+}
+
+model Profile {
+  id                  String               @id @default(cuid())
+  userId              String               @unique
+  role                UserRole
+  firstName           String
+  lastName            String
+  bio                 String?              @db.Text
+  phone               String?
+  dateOfBirth         DateTime?
+  profileImageUrl     String?
+  verificationStatus  VerificationStatus   @default(PENDING)
+  backgroundCheckStatus BackgroundCheckStatus @default(NOT_STARTED)
+  emergencyContact    String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  
+  // Location information
+  address             String?
+  city                String?
+  state               String?
+  zipCode             String?
+  latitude            Float?
+  longitude           Float?
+  
+  // Role-specific fields
+  housingCapacity     Int?                 // For providers
+  housingDescription  String?              @db.Text    // For providers
+  housingType         String?              // For providers
+  housingRules        String?              @db.Text    // For providers
+  housingPhotos       String[]             // For providers
+  
+  specialNeeds        String?              @db.Text    // For homeless
+  employmentStatus    String?              // For homeless
+  shelterStatus       String?              // For homeless
+  
+  organization        String?              // For organizers
+  position            String?              // For organizers
+  serviceArea         String?              // For organizers
+  
+  // Relationships
+  sentRequests        MatchRequest[]       @relation("SentRequests")
+  receivedRequests    MatchRequest[]       @relation("ReceivedRequests")
+  matches             Match[]              @relation("ProfileMatches")
+  sentMessages        Message[]            @relation("MessageSender")
+  receivedMessages    Message[]            @relation("MessageRecipient")
+  sentReports         SafetyReport[]       @relation("ReportCreator")
+  reportedIn          SafetyReport[]       @relation("ReportedProfile")
+  stories             Story[]
+  donations           Donation[]           @relation("DonationCreator")
+  sponsoredMatches    Donation[]           @relation("SponsoredMatch")
+  reviews             Review[]             @relation("ReviewCreator")
+  reviewedIn          Review[]             @relation("ReviewedProfile")
+  resourceCreated     Resource[]
+}
+
+model MatchRequest {
+  id                  String               @id @default(cuid())
+  requesterId         String
+  recipientId         String
+  message             String?              @db.Text
+  status              String               // PENDING, ACCEPTED, DECLINED
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  
+  requester           Profile              @relation("SentRequests", fields: [requesterId], references: [id])
+  recipient           Profile              @relation("ReceivedRequests", fields: [recipientId], references: [id])
+}
+
+model Match {
+  id                  String               @id @default(cuid())
+  profileIds          String[]
+  status              String               // ACTIVE, ENDED
+  startedAt           DateTime             @default(now())
+  endedAt             DateTime?
+  
+  profiles            Profile[]            @relation("ProfileMatches")
+  conversations       Conversation[]
+  sponsorships        Donation[]           @relation("DonationMatch")
+  reviews             Review[]
+}
+
+model Conversation {
+  id                  String               @id @default(cuid())
+  matchId             String
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  
+  match               Match                @relation(fields: [matchId], references: [id])
+  messages            Message[]
+}
+
+model Message {
+  id                  String               @id @default(cuid())
+  conversationId      String
+  senderId            String
+  recipientId         String
+  content             String               @db.Text
+  status              MessageStatus        @default(SENT)
+  createdAt           DateTime             @default(now())
+  
+  conversation        Conversation         @relation(fields: [conversationId], references: [id])
+  sender              Profile              @relation("MessageSender", fields: [senderId], references: [id])
+  recipient           Profile              @relation("MessageRecipient", fields: [recipientId], references: [id])
+}
+
+model SafetyReport {
+  id                  String               @id @default(cuid())
+  creatorId           String
+  reportedProfileId   String
+  reason              String               @db.Text
+  details             String?              @db.Text
+  status              ReportStatus         @default(PENDING)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  
+  creator             Profile              @relation("ReportCreator", fields: [creatorId], references: [id])
+  reportedProfile     Profile              @relation("ReportedProfile", fields: [reportedProfileId], references: [id])
+}
+
+model Story {
+  id                  String               @id @default(cuid())
+  profileId           String
+  title               String
+  content             String               @db.Text
+  imageUrl            String?
+  isPublished         Boolean              @default(false)
+  isFeatured          Boolean              @default(false)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  
+  profile             Profile              @relation(fields: [profileId], references: [id])
+}
+
+model Resource {
+  id                  String               @id @default(cuid())
+  name                String
+  description         String               @db.Text
+  type                ResourceType
+  address             String?
+  city                String
+  state               String
+  zipCode             String
+  latitude            Float?
+  longitude           Float?
+  contactPhone        String?
+  contactEmail        String?
+  website             String?
+  imageUrl            String?
+  isVerified          Boolean              @default(false)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  creatorId           String
+  
+  creator             Profile              @relation(fields: [creatorId], references: [id])
+}
+
+model Donation {
+  id                  String               @id @default(cuid())
+  donorId             String
+  amount              Float
+  currency            String               @default("USD")
+  paymentIntentId     String?
+  isAnonymous         Boolean              @default(false)
+  message             String?              @db.Text
+  matchId             String?              // For match sponsorships
+  createdAt           DateTime             @default(now())
+  
+  donor               Profile              @relation("DonationCreator", fields: [donorId], references: [id])
+  sponsoredMatch      Profile?             @relation("SponsoredMatch", fields: [matchId], references: [id], map: "Donation_sponsoredMatchId_fkey")
+  match               Match?               @relation("DonationMatch", fields: [matchId], references: [id], map: "Donation_matchId_fkey")
+}
+
+model Review {
+  id                  String               @id @default(cuid())
+  creatorId           String
+  reviewedProfileId   String
+  matchId             String
+  rating              Int
+  comment             String?              @db.Text
+  createdAt           DateTime             @default(now())
+  
+  creator             Profile              @relation("ReviewCreator", fields: [creatorId], references: [id])
+  reviewedProfile     Profile              @relation("ReviewedProfile", fields: [reviewedProfileId], references: [id])
+  match               Match                @relation(fields: [matchId], references: [id])
+}
